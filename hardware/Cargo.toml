@@ -1,0 +1,9 @@
+[package]
+name = "hardware"
+version = "0.1.0"
+edition = "2024"
+description = "Inti hardware NES (PPU, APU, mapper, bus) dan runtime CPU 6502 untuk kode hasil recompile"
+
+[features]
+# Hook trace per instruksi (untuk tes yang membandingkan dengan log nestest). Mati = tanpa biaya.
+trace = []

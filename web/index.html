@@ -1,0 +1,273 @@
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<title>NES Recompiled</title>
+<style>
+  :root { color-scheme: dark; --bg: #111; --fg: #ddd; --muted: #888; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px system-ui, sans-serif;
+         display: grid; justify-items: center; padding: 16px; gap: 12px; }
+  canvas { width: min(100%, 768px); aspect-ratio: 256 / 240; image-rendering: pixelated;
+           background: #000; border: 1px solid #333; }
+  #status { color: var(--muted); min-height: 1.4em; text-align: center; }
+  #status.error { color: #f66; }
+  details { max-width: 768px; color: var(--muted); }
+  pre { background: #1a1a1a; padding: 8px; overflow: auto; max-height: 240px; user-select: all; }
+  kbd { background: #222; border: 1px solid #444; border-radius: 3px; padding: 0 4px; }
+  button { background: #222; color: var(--fg); border: 1px solid #444; border-radius: 4px; padding: 4px 12px; }
+
+  /* Kontrol sentuh: hanya tampil di perangkat dengan layar sentuh. */
+  #touch { display: none; width: min(100%, 768px); justify-content: space-between; align-items: center;
+           gap: 8px; user-select: none; -webkit-user-select: none; touch-action: none;
+           -webkit-touch-callout: none; padding-bottom: env(safe-area-inset-bottom); }
+  @media (pointer: coarse) { #touch { display: flex; } #keys { display: none; } }
+  #dpad { position: relative; width: 150px; height: 150px; flex: none; border-radius: 50%; background: #1a1a1a;
+          border: 1px solid #333; }
+  #dpad::before, #dpad::after { content: ""; position: absolute; background: #2a2a2a; border-radius: 6px; }
+  #dpad::before { left: 50px; top: 8px; width: 50px; height: 134px; }
+  #dpad::after { top: 50px; left: 8px; height: 50px; width: 134px; }
+  #dpad i { position: absolute; z-index: 1; width: 50px; height: 50px; display: grid; place-items: center;
+            color: #777; font-style: normal; pointer-events: none; }
+  #dpad i.on { color: #fff; }
+  #dpad .u { left: 50px; top: 8px; } #dpad .d { left: 50px; bottom: 8px; }
+  #dpad .l { left: 8px; top: 50px; } #dpad .r { right: 8px; top: 50px; }
+  #meta { display: flex; flex-direction: column; gap: 14px; align-items: center; }
+  #meta .tbtn { width: 64px; height: 28px; border-radius: 14px; font-size: 11px; }
+  #ab { display: flex; gap: 14px; flex: none; transform: rotate(-15deg); }
+  #ab .tbtn { width: 66px; height: 66px; border-radius: 50%; font-size: 20px; font-weight: bold; }
+  #ab .tbtn:first-child { margin-top: 28px; }
+  .tbtn { background: #262626; color: #aaa; border: 1px solid #444; display: grid; place-items: center; }
+  .tbtn.on { background: #555; color: #fff; }
+</style>
+<canvas id="screen" width="256" height="240"></canvas>
+<div id="status">memuat…</div>
+<div id="interp" hidden>
+  <details>
+    <summary id="interp-summary"></summary>
+    <p>Lompatan dinamis ini belum ada di TOML, jadi dijalankan interpreter cadangan (lebih lambat, tapi tetap benar).
+       Tambahkan ke TOML lalu bangun ulang agar berjalan native:</p>
+    <pre id="interp-toml"></pre>
+  </details>
+</div>
+<div><button id="restart">Mulai ulang</button> <button id="fullscreen">Layar penuh</button></div>
+<div id="touch">
+  <div id="dpad"><i class="u">▲</i><i class="d">▼</i><i class="l">◀</i><i class="r">▶</i></div>
+  <div id="meta">
+    <div class="tbtn" data-bit="2">SELECT</div>
+    <div class="tbtn" data-bit="3">START</div>
+  </div>
+  <div id="ab">
+    <div class="tbtn" data-bit="1">B</div>
+    <div class="tbtn" data-bit="0">A</div>
+  </div>
+</div>
+<details open id="keys">
+  <summary>Kontrol</summary>
+  <p><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> = D-pad (panah juga bisa) ·
+     <kbd>K</kbd> = A · <kbd>J</kbd> = B · <kbd>Enter</kbd> = Start · <kbd>Shift</kbd> kanan = Select.
+     Gamepad standar juga didukung. Suara menyala setelah klik atau tombol pertama.</p>
+</details>
+<script>
+'use strict';
+const canvas = document.getElementById('screen');
+const ctx = canvas.getContext('2d');
+const statusEl = document.getElementById('status');
+const setStatus = (text, error = false) => { statusEl.textContent = text; statusEl.className = error ? 'error' : ''; };
+
+// Bit tombol: sama dengan hardware/src/host.h.
+// Tangan kiri di WASD, tangan kanan di J/K (B di kiri, A di kanan, seperti stik NES).
+// Panah tetap bisa dipakai sebagai D-pad alternatif.
+const KEYS = {
+  KeyK: 0, KeyJ: 1, ShiftRight: 2, Enter: 3,
+  KeyW: 4, KeyS: 5, KeyA: 6, KeyD: 7,
+  ArrowUp: 4, ArrowDown: 5, ArrowLeft: 6, ArrowRight: 7,
+};
+let keyMask = 0;
+let padMask = 0;
+let touchMask = 0;
+let sab = null;
+let i32 = null;
+let worker = null;
+
+function publishButtons() { if (i32) Atomics.store(i32, 0, keyMask | padMask | touchMask); }
+
+addEventListener('keydown', (e) => {
+  if (!(e.code in KEYS)) return;
+  e.preventDefault();
+  keyMask |= 1 << KEYS[e.code];
+  publishButtons();
+});
+addEventListener('keyup', (e) => {
+  if (!(e.code in KEYS)) return;
+  e.preventDefault();
+  keyMask &= ~(1 << KEYS[e.code]);
+  publishButtons();
+});
+addEventListener('blur', () => { keyMask = 0; publishButtons(); });
+
+// Kontrol sentuh: tiap jari dilacak per pointerId (multi-touch). Tombol A/B/Start/Select memakai
+// data-bit; D-pad menghitung arah dari posisi jari terhadap pusat (geser dan diagonal bisa).
+const touches = new Map(); // pointerId -> mask
+function setTouch(id, mask) {
+  const before = touches.get(id) ?? 0;
+  if (mask) touches.set(id, mask); else touches.delete(id);
+  let m = 0;
+  for (const v of touches.values()) m |= v;
+  touchMask = m;
+  for (const el of document.querySelectorAll('.tbtn')) el.classList.toggle('on', !!(m & (1 << el.dataset.bit)));
+  const dir = [['.u', 4], ['.d', 5], ['.l', 6], ['.r', 7]];
+  for (const [sel, bit] of dir) document.querySelector('#dpad ' + sel).classList.toggle('on', !!(m & (1 << bit)));
+  publishButtons();
+  if (mask & ~before && navigator.vibrate) navigator.vibrate(8); // getar hanya saat tombol baru ditekan
+}
+
+function dpadMask(e) {
+  const r = e.currentTarget.getBoundingClientRect();
+  const x = (e.clientX - r.left) / r.width - 0.5;
+  const y = (e.clientY - r.top) / r.height - 0.5;
+  if (Math.hypot(x, y) < 0.08) return 0; // zona mati di tengah
+  let m = 0;
+  const t = 0.18; // ambang agar diagonal mudah ditekan, tapi arah lurus tetap bersih
+  if (y < -t) m |= 1 << 4;
+  if (y > t) m |= 1 << 5;
+  if (x < -t) m |= 1 << 6;
+  if (x > t) m |= 1 << 7;
+  return m;
+}
+
+function bindTouch(el, maskOf) {
+  const move = (e) => { if (el.hasPointerCapture(e.pointerId)) setTouch(e.pointerId, maskOf(e)); };
+  el.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    el.setPointerCapture(e.pointerId);
+    setTouch(e.pointerId, maskOf(e));
+  });
+  el.addEventListener('pointermove', move);
+  for (const t of ['pointerup', 'pointercancel', 'lostpointercapture'])
+    el.addEventListener(t, (e) => setTouch(e.pointerId, 0));
+  el.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+bindTouch(document.getElementById('dpad'), dpadMask);
+for (const el of document.querySelectorAll('.tbtn')) bindTouch(el, () => 1 << el.dataset.bit);
+addEventListener('blur', () => { touches.clear(); setTouch(-1, 0); });
+
+// Gamepad standar: 0 = A (kanan-bawah), 2 = B, 8 = Select, 9 = Start, 12-15 = D-pad.
+function pollGamepad() {
+  let m = 0;
+  for (const pad of navigator.getGamepads?.() ?? []) {
+    if (!pad) continue;
+    const b = (i) => !!pad.buttons[i]?.pressed;
+    if (b(0) || b(3)) m |= 1 << 0;
+    if (b(2) || b(1)) m |= 1 << 1;
+    if (b(8)) m |= 1 << 2;
+    if (b(9)) m |= 1 << 3;
+    if (b(12) || pad.axes[1] < -0.5) m |= 1 << 4;
+    if (b(13) || pad.axes[1] > 0.5) m |= 1 << 5;
+    if (b(14) || pad.axes[0] < -0.5) m |= 1 << 6;
+    if (b(15) || pad.axes[0] > 0.5) m |= 1 << 7;
+  }
+  if (m !== padMask) { padMask = m; publishButtons(); }
+  requestAnimationFrame(pollGamepad);
+}
+requestAnimationFrame(pollGamepad);
+
+let wasmBytes = null;
+
+// Suara: AudioWorklet membaca ring buffer yang diisi worker. Browser baru mengizinkan suara
+// setelah ada interaksi (klik atau tombol), jadi konteks dilanjutkan pada interaksi pertama.
+let audioCtx = null;
+let audioSab = null;
+
+async function setupAudio() {
+  if (typeof AudioWorkletNode === 'undefined') return;
+  audioCtx = new AudioContext();
+  await audioCtx.audioWorklet.addModule('audio-worklet.js');
+  audioSab = new SharedArrayBuffer(8 + 4 * 16384);
+  const node = new AudioWorkletNode(audioCtx, 'nes-audio', {
+    numberOfInputs: 0, outputChannelCount: [1], processorOptions: { sab: audioSab },
+  });
+  node.connect(audioCtx.destination);
+}
+
+function resumeAudio() {
+  if (audioCtx && audioCtx.state !== 'running') audioCtx.resume();
+}
+addEventListener('keydown', resumeAudio);
+addEventListener('pointerdown', resumeAudio);
+
+// Kelompokkan per alamat lompatan, tampilkan sebagai potongan TOML siap salin.
+const interpJumps = new Map();
+function noteInterp(pc, target) {
+  if (!interpJumps.has(pc)) interpJumps.set(pc, new Set());
+  interpJumps.get(pc).add(target);
+  const h = (v) => '0x' + v.toString(16).toUpperCase().padStart(4, '0');
+  document.getElementById('interp').hidden = false;
+  document.getElementById('interp-summary').textContent =
+    `Interpreter cadangan dipakai untuk ${[...interpJumps.values()].reduce((n, t) => n + t.size, 0)} target`;
+  document.getElementById('interp-toml').textContent = [...interpJumps]
+    .map(([at, ts]) => `[[jump]]\nat = ${h(at)}\ntargets = [${[...ts].sort((a, b) => a - b).map(h).join(', ')}]`)
+    .join('\n\n');
+  console.info(`interpreter: lompatan di ${h(pc)} menuju ${h(target)}`);
+}
+
+async function start() {
+  if (worker) {
+    Atomics.store(i32, 3, 1); // minta worker lama berhenti
+    worker.terminate();
+  }
+  sab = new SharedArrayBuffer(16);
+  i32 = new Int32Array(sab);
+  publishButtons();
+  interpJumps.clear();
+  document.getElementById('interp').hidden = true;
+  worker = new Worker('worker.js');
+  worker.onmessage = (e) => {
+    const m = e.data;
+    if (m.type === 'frame') {
+      ctx.putImageData(new ImageData(new Uint8ClampedArray(m.pixels), 256, 240), 0, 0);
+    } else if (m.type === 'fps') {
+      setStatus(`${m.fps.toFixed(1)} fps`);
+    } else if (m.type === 'interp') {
+      noteInterp(m.pc, m.target);
+    } else if (m.type === 'fault') {
+      const h = (v) => '$' + v.toString(16).toUpperCase().padStart(4, '0');
+      setStatus(m.kind === 2
+        ? `Mapper ${m.target} belum didukung (didukung: 0, 1, 2, 3, 4, 7, 11, 66, 71, 79).`
+        : m.kind === 1
+        ? `Berhenti: lompatan dinamis di ${h(m.pc)} menuju ${h(m.target)} yang belum ada di TOML. Tambahkan targetnya lalu bangun ulang.`
+        : `Berhenti: eksekusi sampai kode yang tidak dianalisis di ${h(m.pc)}.`, true);
+    } else if (m.type === 'error') {
+      setStatus(`Galat: ${m.message}`, true);
+    }
+  };
+  let audio;
+  if (audioSab) {
+    Atomics.store(new Int32Array(audioSab, 0, 2), 0, 0);
+    Atomics.store(new Int32Array(audioSab, 0, 2), 1, 0);
+    audio = { sab: audioSab, rate: audioCtx.sampleRate };
+  }
+  // Salinan, karena ArrayBuffer yang dikirim bisa dipakai ulang saat "Mulai ulang".
+  worker.postMessage({ type: 'start', wasm: wasmBytes.slice(0), sab, audio });
+}
+
+async function init() {
+  if (!crossOriginIsolated) {
+    setStatus('SharedArrayBuffer tidak tersedia. Jalankan lewat "cargo serve", bukan membuka file langsung.', true);
+    return;
+  }
+  const res = await fetch('nes.wasm');
+  if (!res.ok) {
+    setStatus('nes.wasm belum ada. Bangun dengan: cargo wasm <rom.nes> [--config config.toml]', true);
+    return;
+  }
+  wasmBytes = await res.arrayBuffer();
+  try {
+    await setupAudio();
+  } catch (e) {
+    console.warn('suara tidak tersedia:', e);
+  }
+  setStatus(audioCtx ? 'berjalan… (klik atau tekan tombol untuk menyalakan suara)' : 'berjalan… (tanpa suara)');
+  start();
+}
+
+document.getElementById('restart').onclick = () => wasmBytes && start();
+document.getElementById('fullscreen').onclick = () => canvas.requestFullscreen?.();
+init().catch((e) => setStatus(`Galat: ${e}`, true));
+</script>

@@ -1,0 +1,15 @@
+[package]
+name = "nes-wasm"
+version = "0.1.0"
+edition = "2024"
+description = "Modul WebAssembly: hasil recompile satu ROM digabung dengan inti hardware"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+hardware = { path = "../hardware" }
+
+[build-dependencies]
+recomp = { path = "../recomp" }

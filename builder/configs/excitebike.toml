@@ -1,0 +1,27 @@
+# Target lompatan dinamis Excitebike (JMP indirect). Sebagian dibaca dari tabel pointer di ROM,
+# sebagian ditemukan dengan menjalankan game di hardware sampai program berhenti dengan
+# recomp_unresolved, lalu menambahkan targetnya. Mode yang belum pernah dijalankan mungkin
+# masih punya target lain; gejalanya game berhenti dengan pesan merah yang menyebut alamatnya.
+
+# Pointer di $00/$01 diisi dari beberapa tempat; tabel di $C12C hanya memberi 4 target pertama.
+# Sisanya ditemukan dengan menjalankan game (lomba, Selection B, mode Design).
+[[jump]]
+at = 0xCB38
+targets = [0xC2BD, 0xC346, 0xC395, 0xC3BD, 0xC3F3, 0xC514, 0xC551, 0xC55E, 0xC566, 0xC575, 0xC5A3, 0xC820, 0xC869, 0xC875, 0xC99A, 0xCB3B, 0xCB77, 0xCBA4, 0xCC6B]
+
+# Tabel pointer: rendah di $D8FF+Y, tinggi di $D905+Y; Y = 0..5 (6 entri) dibaca dari ROM.
+[[jump]]
+at = 0xD930
+targets = [0xD923, 0xD933, 0xD953, 0xD983, 0xD9D3, 0xD9F6]
+
+# Tabel pointer: rendah di $D8EF+Y, tinggi di $D8F1+Y; Y = 0..1 dibaca dari ROM.
+[[jump]]
+at = 0xDA55
+targets = [0xE0E6, 0xE2AF]
+
+# Tabel kata di $E6B7 (Y = 2*indeks). Indeks 0-16 dan 18-20 dibaca dari ROM; indeks 17 menunjuk ke
+# tabel itu sendiri (data) dan setelah indeks 20 isinya tampak seperti data, jadi dilewati.
+# Tidak 100% pasti di mana tabel berakhir.
+[[jump]]
+at = 0xE7A0
+targets = [0xE818, 0xE845, 0xE854, 0xE85D, 0xE86A, 0xE879, 0xE89D, 0xE8BF, 0xE8C6, 0xE8D3, 0xE8E3, 0xE8E7, 0xE8EE, 0xE8F5, 0xE8FA, 0xE8FF, 0xE934, 0xE956, 0xE963, 0xEA8F]

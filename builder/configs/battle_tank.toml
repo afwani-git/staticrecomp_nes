@@ -1,0 +1,22 @@
+# Battle Tank (CNROM). Target lompatan dinamis di bawah ditemukan dengan menjalankan game; yang
+# belum terdaftar tetap berjalan lewat interpreter cadangan (lebih lambat, hasilnya sama).
+
+[[jump]]
+at = 0xA57A
+targets = [0xA544, 0xA5B8, 0xA607]
+
+[[jump]]
+at = 0xAF30
+targets = [0xB000, 0xB02A, 0xB0AB]
+
+[[jump]]
+at = 0xD8D1
+targets = [0xD937, 0xDCBA, 0xDCEF, 0xDCF3]
+
+[[jump]]
+at = 0xF62F
+targets = [0xACD8, 0xDD5F, 0xDF4A]
+
+[[jump]]
+at = 0xF632
+targets = [0x85F4, 0xB10C, 0xD766]

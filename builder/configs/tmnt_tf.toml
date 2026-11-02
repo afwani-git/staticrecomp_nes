@@ -1,0 +1,5 @@
+# TMNT Tournament Fighters (MMC3). Lompatan di $F87A (bank tetap) memilih rutin lewat pointer;
+# targetnya ditemukan dengan menjalankan game. Kode di bank yang bisa berganti dijalankan interpreter.
+[[jump]]
+at = 0xF87A
+targets = [0xFAB2, 0xFAD4, 0xF96E, 0xF957]

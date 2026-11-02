@@ -1,0 +1,5 @@
+[alias]
+# cargo wasm roms/GAME.nes [--config builder/configs/GAME.toml] [--out web/nes.wasm]
+wasm = "run -q -p recomp -- build"
+# cargo serve [--port 8000] [--host 127.0.0.1]
+serve = "run -q -p recomp -- serve"

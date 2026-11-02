@@ -1,0 +1,44 @@
+# Konfigurasi nestest dengan antarmuka menu (dimulai dari vektor RESET, bukan $C000).
+# Berisi semua isi nestest.toml, ditambah pemilih tes di $C107: pola trampolin
+# `push alamat kembali / JMP ($0200)`, dengan rutin tes yang berakhir di RTS ke $C1DF.
+# Target ditemukan dengan menjalankan menu di hardware dan menekan Start sampai selesai.
+# Konfigurasi nestest (mode otomatis): eksekusi mulai di $C000, bukan di vektor RESET.
+[[entry]]
+addr = 0xC000
+
+# push+RTS: o $CE e $66 di-push lalu RTS, jadi tujuannya $CE67 (alamat + 1).
+# Ada di beberapa fungsi karena ekor kodenya dipakai bersama.
+[[jump]]
+at = 0xCE66
+targets = [0xCE67]
+
+# JMP ($0200) dengan pointer yang diisi tepat sebelumnya: LDA #$7E / STA $0200 / LDA #$DB / STA $0201.
+[[jump]]
+at = 0xDB7B
+targets = [0xDB7E]
+
+# JMP ($02FF): menguji bug halaman 6502. Byte rendah dari $02FF (=$00), byte tinggi dari
+# $0200 (=$03, bukan dari $0300), jadi tujuannya $0300 di RAM. Kodenya ditulis nestest
+# sendiri sebelum lompatan (LDA #$AA / RTS); generator memeriksa isinya saat jalan.
+[[jump]]
+at = 0xDBB5
+targets = [0x0300]
+
+[[ram_code]]
+addr = 0x0300
+bytes = [0xA9, 0xAA, 0x60]
+
+# RTI dipakai sebagai lompatan: nestest mem-push $CE, $AE, dan flag $65, lalu RTI -> $CEAE.
+[[jump]]
+at = 0xCEAD
+targets = [0xCEAE]
+
+[[jump]]
+at = 0xCECD
+targets = [0xCECE]
+
+[[jump]]
+at = 0xC107
+returns_to = 0xC1DF
+targets = [0xC1D4, 0xC72D, 0xC7DB, 0xC885, 0xCBDE, 0xCDF8, 0xCEEE, 0xCFA2, 0xD174, 0xD4FB, 0xDBB8, 0xDF4A, 0xE1AA]
+

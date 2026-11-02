@@ -1,0 +1,11 @@
+# Hasil build
+/target
+/out/
+/web/*.wasm
+
+# ROM: semua diabaikan kecuali ROM uji gratis (nestest, blargg)
+/roms/*
+!/roms/nestest/
+!/roms/mmc3_test_2/
+*:Zone.Identifier
+

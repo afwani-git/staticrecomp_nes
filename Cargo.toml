@@ -1,0 +1,11 @@
+[workspace]
+resolver = "3"
+members = ["recomp", "hardware", "runner"]
+
+# Modul WebAssembly: kecil dan cepat. panic = "abort" karena panic di wasm32 memang berakhir sebagai trap.
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = true
